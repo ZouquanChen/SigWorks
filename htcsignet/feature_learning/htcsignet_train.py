@@ -256,7 +256,7 @@ def setup_data_loaders(data, batch_size, input_size):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser('Train Signet/F')
-    argparser.add_argument('--dataset-path', help='Path containing a numpy file with images and labels')
+    argparser.add_argument('--dataset-path', help='Path containing a numpy file with images and labels', default='./datasets/GPDS_1000_256X256.npz')
     argparser.add_argument('--input-size', help='Input size (cropped)', nargs=2, type=int, default=(224, 224))
     argparser.add_argument('--users', nargs=2, type=int, default=(300, 1000))
 
@@ -273,11 +273,12 @@ if __name__ == '__main__':
 
     argparser.add_argument('--lamb', type=float, default=0.95)
 
-    argparser.add_argument('--weights', default='../../vit_base_patch16_224.pth')
+    argparser.add_argument('--weights', default='./vit_base_patch16_224.pth') #'../../vit_base_patch16_224.pth'
     argparser.add_argument('--freeze_layers', default='True')
-    argparser.add_argument('--logdir', help='logdir', required=True)
+    argparser.add_argument('--logdir', help='logdir', default='./logs/')
     argparser.add_argument('--lr', help='learning rate', default=1e-5, type=float)
     arguments = argparser.parse_args()
+    arguments.forg = None
     print(arguments)
 
     main(arguments)
