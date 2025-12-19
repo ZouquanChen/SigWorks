@@ -6,8 +6,8 @@ import sklearn.svm
 import sklearn.pipeline as pipeline
 import sklearn.preprocessing as preprocessing
 
-import htcsignet.wd.metrics as metrics
-import htcsignet.wd.data as data
+import wd.metrics as metrics
+import wd.data as data
 
 
 def train_wdclassifier_user(training_set: Tuple[np.ndarray, np.ndarray],
