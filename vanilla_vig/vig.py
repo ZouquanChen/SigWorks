@@ -59,11 +59,38 @@ class FFN(nn.Module):
         return x
 
 
-class Stem(nn.Module):
+# class Stem(nn.Module):
+#     """ Image to Visual Word Embedding
+#     Overlap: https://arxiv.org/pdf/2106.13797.pdf
+#     """
+#     def __init__(self, img_size=224, in_dim=3, out_dim=768, act='relu'):
+#         super().__init__()
+#         self.convs = nn.Sequential(
+#             nn.Conv2d(in_dim, out_dim//8, 3, stride=2, padding=1),
+#             nn.BatchNorm2d(out_dim//8),
+#             act_layer(act),
+#             nn.Conv2d(out_dim//8, out_dim//4, 3, stride=2, padding=1),
+#             nn.BatchNorm2d(out_dim//4),
+#             act_layer(act),
+#             nn.Conv2d(out_dim//4, out_dim//2, 3, stride=2, padding=1),
+#             nn.BatchNorm2d(out_dim//2),
+#             act_layer(act),
+#             nn.Conv2d(out_dim//2, out_dim, 3, stride=2, padding=1),
+#             nn.BatchNorm2d(out_dim),
+#             act_layer(act),
+#             nn.Conv2d(out_dim, out_dim, 3, stride=1, padding=1),
+#             nn.BatchNorm2d(out_dim),
+#         )
+
+#     def forward(self, x):
+#         x = self.convs(x)
+#         return x
+
+class Stem(nn.Module):  
     """ Image to Visual Word Embedding
     Overlap: https://arxiv.org/pdf/2106.13797.pdf
     """
-    def __init__(self, img_size=224, in_dim=3, out_dim=768, act='relu'):
+    def __init__(self, img_size=224, in_dim=1, out_dim=768, act='relu'):
         super().__init__()
         self.convs = nn.Sequential(
             nn.Conv2d(in_dim, out_dim//8, 3, stride=2, padding=1),
@@ -173,10 +200,33 @@ def vig_ti_224_gelu(pretrained=False, **kwargs):
     return model
 
 
+# @register_model
+# def vig_s_224_gelu(pretrained=False, **kwargs):
+#     class OptInit:
+#         def __init__(self, num_classes=1000, drop_path_rate=0.0, drop_rate=0.0, num_knn=9, **kwargs):
+#             self.k = num_knn # neighbor num (default:9)
+#             self.conv = 'mr' # graph conv layer {edge, mr}
+#             self.act = 'gelu' # activation layer {relu, prelu, leakyrelu, gelu, hswish}
+#             self.norm = 'batch' # batch or instance normalization {batch, instance}
+#             self.bias = True # bias of conv layer True or False
+#             self.n_blocks = 16 # number of basic blocks in the backbone
+#             self.n_filters = 320 # number of channels of deep features
+#             self.n_classes = num_classes # Dimension of out_channels
+#             self.dropout = drop_rate # dropout rate
+#             self.use_dilation = True # use dilated knn or not
+#             self.epsilon = 0.2 # stochastic epsilon for gcn
+#             self.use_stochastic = False # stochastic for gcn, True or False
+#             self.drop_path = drop_path_rate
+
+#     opt = OptInit(**kwargs)
+#     model = DeepGCN(opt)
+#     model.default_cfg = default_cfgs['gnn_patch16_224']
+#     return model
+
 @register_model
 def vig_s_224_gelu(pretrained=False, **kwargs):
     class OptInit:
-        def __init__(self, num_classes=1000, drop_path_rate=0.0, drop_rate=0.0, num_knn=9, **kwargs):
+        def __init__(self, num_classes=1280, drop_path_rate=0.0, drop_rate=0.0, num_knn=9, **kwargs):
             self.k = num_knn # neighbor num (default:9)
             self.conv = 'mr' # graph conv layer {edge, mr}
             self.act = 'gelu' # activation layer {relu, prelu, leakyrelu, gelu, hswish}

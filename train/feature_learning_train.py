@@ -23,7 +23,11 @@ import htcsignet.feature_learning.models as models
 
 from rich.progress import track
 
+@torch.compiler.disable
+def save_parameters(params, dir, filename):
+    torch.save(params, dir / filename)
 
+# @torch.compile
 def train(base_model: torch.nn.Module,
           classification_layer: torch.nn.Module,
           forg_layer: torch.nn.Module,
@@ -61,7 +65,8 @@ def train(base_model: torch.nn.Module,
             best_acc = val_acc
             best_params = get_parameters(base_model, classification_layer, forg_layer)
             if logdir is not None:
-                torch.save(best_params, logdir / 'model_best.pth')
+                # torch.save(best_params, logdir / 'model_best.pth')
+                save_parameters(best_params, logdir, 'model_best.pth')
 
         if args.forg:
             print('Epoch {}. Val loss: {:.4f}, Val acc: {:.2f}%,'
@@ -74,7 +79,8 @@ def train(base_model: torch.nn.Module,
 
         if logdir is not None:
             current_params = get_parameters(base_model, classification_layer, forg_layer)
-            torch.save(current_params, logdir / 'model_last.pth')
+            # torch.save(current_params, logdir / 'model_last.pth')
+            save_parameters(current_params, logdir, 'model_last.pth')
 
     return best_params
 
@@ -223,11 +229,14 @@ def main(args):
     
     n_classes = len(np.unique(data[1]))
     base_model = models.available_models[args.model](args.weights).to(device)
+    base_model = torch.compile(base_model)
     #base_model = models.available_models[args.model](args.weights)
     #base_model = torch.nn.DataParallel(base_model, device_ids=[0, 1]).cuda()
     classification_layer = nn.Linear(1280, n_classes).to(device)
+    classification_layer = torch.compile(classification_layer)
     # classification_layer = torch.nn.DataParallel(classification_layer, device_ids=[0, 1, 2]).cuda()
     forg_layer = nn.Linear(1280, 1).to(device)
+    forg_layer = torch.compile(forg_layer)
     # forg_layer = torch.nn.DataParallel(forg_layer, device_ids=[0, 1, 2]).cuda()
 
    
@@ -287,4 +296,5 @@ if __name__ == '__main__':
     arguments = argparser.parse_args()
     print(arguments)
 
+    # main = torch.compile(main)
     main(arguments)
