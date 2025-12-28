@@ -21,7 +21,13 @@ from htcsignet.feature_learning.data import TransformDataset
 import htcsignet.feature_learning.models as models
 # import os
 
+from rich.progress import track
 
+@torch.compiler.disable
+def save_parameters(params, dir, filename):
+    torch.save(params, dir / filename)
+
+# @torch.compile
 def train(base_model: torch.nn.Module,
           classification_layer: torch.nn.Module,
           forg_layer: torch.nn.Module,
@@ -46,7 +52,7 @@ def train(base_model: torch.nn.Module,
     best_acc = 0
     best_params = get_parameters(base_model, classification_layer, forg_layer)
 
-    for epoch in range(args.epochs):
+    for epoch in track(range(args.epochs), description=f"Run train"):
         # Train one epoch; evaluate on validation
         train_epoch(train_loader, base_model, classification_layer, forg_layer,
                     epoch, optimizer, lr_scheduler, device, args)
@@ -59,7 +65,8 @@ def train(base_model: torch.nn.Module,
             best_acc = val_acc
             best_params = get_parameters(base_model, classification_layer, forg_layer)
             if logdir is not None:
-                torch.save(best_params, logdir / 'model_best.pth')
+                # torch.save(best_params, logdir / 'model_best.pth')
+                save_parameters(best_params, logdir, 'model_best.pth')
 
         if args.forg:
             print('Epoch {}. Val loss: {:.4f}, Val acc: {:.2f}%,'
@@ -72,7 +79,8 @@ def train(base_model: torch.nn.Module,
 
         if logdir is not None:
             current_params = get_parameters(base_model, classification_layer, forg_layer)
-            torch.save(current_params, logdir / 'model_last.pth')
+            # torch.save(current_params, logdir / 'model_last.pth')
+            save_parameters(current_params, logdir, 'model_last.pth')
 
     return best_params
 
@@ -100,7 +108,7 @@ def train_epoch(train_loader: torch.utils.data.DataLoader,
     base_model.train()
     step = 0
     n_steps = len(train_loader)
-    for batch in train_loader:
+    for batch in track(train_loader, description=f"Run batch"):
         x, y, yforg = batch[0], batch[1], batch[2]
         x = x.clone().float().to(device).detach()
         y = y.clone().long().to(device).detach()
@@ -127,11 +135,8 @@ def train_epoch(train_loader: torch.utils.data.DataLoader,
 
         pred = logits.argmax(1)
 
-
         label = y[yforg == 0]
         acc = label.eq(pred).float().mean()
-
-
 
         step += 1
     lr_scheduler.step()
@@ -150,7 +155,7 @@ def test(val_loader: torch.utils.data.DataLoader,
 
     val_forg_losses = []
     val_forg_accs = []
-    for batch in val_loader:
+    for batch in track(val_loader, description=f"Run validation"):
         x, y, yforg = batch[0], batch[1], batch[2]
         x = x.clone().float().to(device).detach()
         y = y.clone().long().to(device).detach()
@@ -183,6 +188,14 @@ def test(val_loader: torch.utils.data.DataLoader,
 
     return val_acc, val_loss, val_forg_acc, val_forg_loss
 
+def apply_random(seed: int):
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    print(f'Set all random seed to {seed}')
 
 def main(args):
  
@@ -194,15 +207,13 @@ def main(args):
         if torch.cuda.is_available():
             device = 'cuda:0'
         else:
-            device = 'cpu'
+            raise RuntimeError('No GPU available')
         return device
 
     device = get_device()
     print('Using device: {}'.format(device))
 
-    torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
+    apply_random(args.seed)
 
     print('Loading Data')
 
@@ -218,11 +229,14 @@ def main(args):
     
     n_classes = len(np.unique(data[1]))
     base_model = models.available_models[args.model](args.weights).to(device)
+    base_model = torch.compile(base_model)
     #base_model = models.available_models[args.model](args.weights)
     #base_model = torch.nn.DataParallel(base_model, device_ids=[0, 1]).cuda()
     classification_layer = nn.Linear(1280, n_classes).to(device)
+    classification_layer = torch.compile(classification_layer)
     # classification_layer = torch.nn.DataParallel(classification_layer, device_ids=[0, 1, 2]).cuda()
     forg_layer = nn.Linear(1280, 1).to(device)
+    forg_layer = torch.compile(forg_layer)
     # forg_layer = torch.nn.DataParallel(forg_layer, device_ids=[0, 1, 2]).cuda()
 
    
@@ -261,7 +275,7 @@ if __name__ == '__main__':
     argparser.add_argument('--input-size', help='Input size (cropped)', nargs=2, type=int, default=(224, 224))
     argparser.add_argument('--users', nargs=2, type=int, default=(300, 1000))
 
-    argparser.add_argument('--model', default='htcsignet', choices=models.available_models)
+    argparser.add_argument('--model', default='vig', choices=models.available_models)
     argparser.add_argument('--batch-size', help='Batch size', type=int, default=32)
 
     argparser.add_argument('--lr-decay', help='learning rate decay (multiplier)', default=0.1, type=float)
@@ -270,7 +284,7 @@ if __name__ == '__main__':
     argparser.add_argument('--weight-decay', help='Weight Decay', default=1e-4, type=float)
     argparser.add_argument('--epochs', help='Number of epochs', default=100, type=int)
 
-    argparser.add_argument('--seed', default=42, type=int)
+    argparser.add_argument('--seed', default=0, type=int) #42
 
     argparser.add_argument('--lamb', type=float, default=0.95)
 
@@ -282,4 +296,5 @@ if __name__ == '__main__':
     arguments = argparser.parse_args()
     print(arguments)
 
+    # main = torch.compile(main)
     main(arguments)
