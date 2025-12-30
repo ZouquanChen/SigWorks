@@ -14,12 +14,12 @@ from torch.nn import Sequential as Seq
 from vanilla_vig.gcn_lib import Grapher, act_layer
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-from timm.models.helpers import load_pretrained
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
-from timm.models.registry import register_model
+from timm.models import load_pretrained
+from timm.layers import DropPath, to_2tuple, trunc_normal_
+from timm.models import register_model
 
 # SpikingJelly imports
-from spikingjelly.activation_based import neuron, layer, functional, surrogate
+from spikingjelly.activation_based import neuron, layer, functional, surrogate, base
 
 
 def _cfg(url='', **kwargs):
@@ -62,7 +62,7 @@ def spiking_act_layer(act, tau=2.0, detach_reset=True, backend='torch'):
     )
 
 
-class SpikingFFN(nn.Module):
+class SpikingFFN(base.MemoryModule):
     """
     Spiking Feed-Forward Network
     将FFN模块转换为脉冲版本
@@ -74,8 +74,8 @@ class SpikingFFN(nn.Module):
         
         # 使用SpikingJelly的layer模块来包装卷积层
         self.fc1 = nn.Sequential(
-            layer.Conv2d(in_features, hidden_features, 1, stride=1, padding=0),
-            layer.BatchNorm2d(hidden_features),
+            layer.Conv2d(in_features, hidden_features, 1, stride=1, padding=0, step_mode='m'),
+            layer.BatchNorm2d(hidden_features, step_mode='m'),
         )
         # 脉冲神经元替代激活函数
         self.sn1 = neuron.LIFNode(
@@ -86,8 +86,8 @@ class SpikingFFN(nn.Module):
         )
         
         self.fc2 = nn.Sequential(
-            layer.Conv2d(hidden_features, out_features, 1, stride=1, padding=0),
-            layer.BatchNorm2d(out_features),
+            layer.Conv2d(hidden_features, out_features, 1, stride=1, padding=0, step_mode='m'),
+            layer.BatchNorm2d(out_features, step_mode='m'),
         )
         # 第二个脉冲神经元
         self.sn2 = neuron.LIFNode(
@@ -99,6 +99,7 @@ class SpikingFFN(nn.Module):
         
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
+    @torch.compiler.disable
     def forward(self, x):
         # x shape: [T, B, C, H, W] 其中T是时间步
         shortcut = x
@@ -110,7 +111,7 @@ class SpikingFFN(nn.Module):
         return x
 
 
-class SpikingStem(nn.Module):
+class SpikingStem(base.MemoryModule):
     """
     Spiking Image to Visual Word Embedding
     将Stem模块转换为脉冲版本
@@ -118,30 +119,31 @@ class SpikingStem(nn.Module):
     def __init__(self, img_size=224, in_dim=1, out_dim=768, tau=2.0):
         super().__init__()
         
-        self.conv1 = layer.Conv2d(in_dim, out_dim//8, 3, stride=2, padding=1)
-        self.bn1 = layer.BatchNorm2d(out_dim//8)
+        self.conv1 = layer.Conv2d(in_dim, out_dim//8, 3, stride=2, padding=1, step_mode='m')
+        self.bn1 = layer.BatchNorm2d(out_dim//8, step_mode='m')
         self.sn1 = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='m', 
                                    surrogate_function=surrogate.ATan())
         
-        self.conv2 = layer.Conv2d(out_dim//8, out_dim//4, 3, stride=2, padding=1)
-        self.bn2 = layer.BatchNorm2d(out_dim//4)
+        self.conv2 = layer.Conv2d(out_dim//8, out_dim//4, 3, stride=2, padding=1, step_mode='m')
+        self.bn2 = layer.BatchNorm2d(out_dim//4, step_mode='m')
         self.sn2 = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='m',
                                    surrogate_function=surrogate.ATan())
         
-        self.conv3 = layer.Conv2d(out_dim//4, out_dim//2, 3, stride=2, padding=1)
-        self.bn3 = layer.BatchNorm2d(out_dim//2)
+        self.conv3 = layer.Conv2d(out_dim//4, out_dim//2, 3, stride=2, padding=1, step_mode='m')
+        self.bn3 = layer.BatchNorm2d(out_dim//2, step_mode='m')
         self.sn3 = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='m',
                                    surrogate_function=surrogate.ATan())
         
-        self.conv4 = layer.Conv2d(out_dim//2, out_dim, 3, stride=2, padding=1)
-        self.bn4 = layer.BatchNorm2d(out_dim)
+        self.conv4 = layer.Conv2d(out_dim//2, out_dim, 3, stride=2, padding=1, step_mode='m')
+        self.bn4 = layer.BatchNorm2d(out_dim, step_mode='m')
         self.sn4 = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='m',
                                    surrogate_function=surrogate.ATan())
         
-        self.conv5 = layer.Conv2d(out_dim, out_dim, 3, stride=1, padding=1)
-        self.bn5 = layer.BatchNorm2d(out_dim)
+        self.conv5 = layer.Conv2d(out_dim, out_dim, 3, stride=1, padding=1, step_mode='m')
+        self.bn5 = layer.BatchNorm2d(out_dim, step_mode='m')
         # 最后一层不加脉冲神经元，保持特征
 
+    @torch.compiler.disable
     def forward(self, x):
         # x shape: [T, B, C, H, W]
         x = self.sn1(self.bn1(self.conv1(x)))
@@ -152,7 +154,7 @@ class SpikingStem(nn.Module):
         return x
 
 
-class SpikingGrapher(nn.Module):
+class SpikingGrapher(base.MemoryModule):
     """
     Spiking Grapher module
     将Grapher模块转换为脉冲版本
@@ -173,8 +175,8 @@ class SpikingGrapher(nn.Module):
         
         # FC1 层
         self.fc1 = nn.Sequential(
-            layer.Conv2d(in_channels, in_channels, 1, stride=1, padding=0),
-            layer.BatchNorm2d(in_channels),
+            layer.Conv2d(in_channels, in_channels, 1, stride=1, padding=0, step_mode='m'),
+            layer.BatchNorm2d(in_channels, step_mode='m'),
         )
         self.sn1 = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='m',
                                    surrogate_function=surrogate.ATan())
@@ -188,14 +190,15 @@ class SpikingGrapher(nn.Module):
         
         # FC2 层
         self.fc2 = nn.Sequential(
-            layer.Conv2d(in_channels * 2, in_channels, 1, stride=1, padding=0),
-            layer.BatchNorm2d(in_channels),
+            layer.Conv2d(in_channels * 2, in_channels, 1, stride=1, padding=0, step_mode='m'),
+            layer.BatchNorm2d(in_channels, step_mode='m'),
         )
         self.sn2 = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='m',
                                    surrogate_function=surrogate.ATan())
         
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
+    @torch.compiler.disable
     def forward(self, x):
         # x shape: [T, B, C, H, W]
         _tmp = x
@@ -209,7 +212,7 @@ class SpikingGrapher(nn.Module):
         return x
 
 
-class SpikingDyGraphConv2d(nn.Module):
+class SpikingDyGraphConv2d(base.MemoryModule):
     """
     Spiking Dynamic Graph Convolution
     将动态图卷积转换为脉冲版本
@@ -234,6 +237,7 @@ class SpikingDyGraphConv2d(nn.Module):
         else:
             raise NotImplementedError('conv:{} is not supported'.format(conv))
 
+    @torch.compiler.disable
     def forward(self, x, relative_pos=None):
         # x shape: [T, B, C, H, W]
         T, B, C, H, W = x.shape
@@ -254,7 +258,7 @@ class SpikingDyGraphConv2d(nn.Module):
         return torch.stack(outputs, dim=0)  # [T, B, C, H, W]
 
 
-class SpikingMRConv2d(nn.Module):
+class SpikingMRConv2d(base.MemoryModule):
     """
     Spiking Max-Relative Graph Convolution
     """
@@ -269,7 +273,8 @@ class SpikingMRConv2d(nn.Module):
         )
         self.sn = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='s',
                                   surrogate_function=surrogate.ATan())
-        
+
+    @torch.compiler.disable
     def forward(self, x, edge_index, y=None):
         x_i = self.batched_index_select(x, edge_index[1])
         if y is not None:
@@ -284,7 +289,7 @@ class SpikingMRConv2d(nn.Module):
         return x
 
 
-class SpikingEdgeConv2d(nn.Module):
+class SpikingEdgeConv2d(base.MemoryModule):
     """
     Spiking Edge Convolution
     """
@@ -299,7 +304,8 @@ class SpikingEdgeConv2d(nn.Module):
         )
         self.sn = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='s',
                                   surrogate_function=surrogate.ATan())
-        
+
+    @torch.compiler.disable
     def forward(self, x, edge_index, y=None):
         x_i = self.batched_index_select(x, edge_index[1])
         if y is not None:
@@ -313,7 +319,7 @@ class SpikingEdgeConv2d(nn.Module):
         return max_value
 
 
-class SpikingDeepGCN(nn.Module):
+class SpikingDeepGCN(base.MemoryModule):
     """
     Spiking DeepGCN - SNN版本的视觉图神经网络
     
@@ -367,14 +373,12 @@ class SpikingDeepGCN(nn.Module):
                 ) for i in range(self.n_blocks)
             ])
         
-        # 脉冲版本的预测头
-        self.prediction = nn.Sequential(
-            layer.Conv2d(channels, 1024, 1, bias=True),
-            layer.BatchNorm2d(1024),
+        # 特征提取头 (输出1280维特征，与训练脚本中的分类层匹配)
+        self.feature_head = nn.Sequential(
+            layer.Conv2d(channels, 1280, 1, bias=True, step_mode='m'),
+            layer.BatchNorm2d(1280, step_mode='m'),
             neuron.LIFNode(tau=tau, detach_reset=True, step_mode='m',
                           surrogate_function=surrogate.ATan()),
-            layer.Dropout(opt.dropout),
-            layer.Conv2d(1024, opt.n_classes, 1, bias=True),
         )
         
         self.model_init()
@@ -388,13 +392,14 @@ class SpikingDeepGCN(nn.Module):
                     m.bias.data.zero_()
                     m.bias.requires_grad = True
 
+    @torch.compiler.disable
     def forward(self, inputs):
         """
         Args:
             inputs: [B, C, H, W] 输入图像
         
         Returns:
-            输出分类结果 [B, n_classes]
+            输出特征向量 [B, 1280]
         """
         # 将输入扩展为时间序列 [T, B, C, H, W]
         x = inputs.unsqueeze(0).repeat(self.T, 1, 1, 1, 1)
@@ -414,12 +419,12 @@ class SpikingDeepGCN(nn.Module):
         # 全局平均池化
         x = x.mean(dim=[3, 4], keepdim=True)  # [T, B, C, 1, 1]
         
-        # 预测
-        x = self.prediction(x)  # [T, B, n_classes, 1, 1]
-        x = x.squeeze(-1).squeeze(-1)  # [T, B, n_classes]
+        # 特征提取
+        x = self.feature_head(x)  # [T, B, 1280, 1, 1]
+        x = x.squeeze(-1).squeeze(-1)  # [T, B, 1280]
         
         # 对时间维度取平均（脉冲发放率编码）
-        x = x.mean(dim=0)  # [B, n_classes]
+        x = x.mean(dim=0)  # [B, 1280]
         
         return x
 

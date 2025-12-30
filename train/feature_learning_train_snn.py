@@ -4,7 +4,10 @@ SNN版本的特征学习训练脚本
 """
 
 import sys
+import os
 sys.path.append(".")
+# 禁用输出缓冲，确保日志立即显示
+os.environ['PYTHONUNBUFFERED'] = '1'
 
 import argparse
 import pathlib
@@ -251,22 +254,34 @@ def main(args):
     apply_random(args.seed)
 
     print('Loading Data')
+    sys.stdout.flush()
 
     x, y, yforg, usermapping, filenames = util.load_dataset(args.dataset_path)
+    print(f'Dataset loaded: {x.shape[0]} samples')
+    sys.stdout.flush()
+    
     data = util.get_subset((x, y, yforg), subset=range(*args.users))
+    print(f'Subset selected: {data[0].shape[0]} samples')
+    sys.stdout.flush()
+    
     if not args.forg:
         data = util.remove_forgeries(data, forg_idx=2)
 
     train_loader, val_loader = setup_data_loaders(data, args.batch_size, args.input_size)
+    print(f'Data loaders ready: {len(train_loader)} train batches, {len(val_loader)} val batches')
+    sys.stdout.flush()
 
     print('Initializing SNN Model')
+    sys.stdout.flush()
 
     n_classes = len(np.unique(data[1]))
     
     if '_snn' not in args.model:
         raise ValueError('Please select an SNN model for SNN training.')
     base_model = models.available_models[args.model](args.weights).to(device)
-    base_model = torch.compile(base_model)
+    # 注意: 不使用 torch.compile，因为 SpikingJelly 与 dynamo 不兼容
+    # base_model = torch.compile(base_model)
+    
     # 分类层和伪造检测层
     classification_layer = nn.Linear(1280, n_classes).to(device)
     forg_layer = nn.Linear(1280, 1).to(device)
